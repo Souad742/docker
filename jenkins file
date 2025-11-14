@@ -1,0 +1,81 @@
+pipeline {
+    agent any
+
+    environment {
+        SONARQUBE_ENV  = 'SonarQube'                // Nom du serveur SonarQube déclaré dans Jenkins
+        SCANNER_NAME   = 'SonarQube Scanner'        // Nom du scanner SonarQube installé dans Jenkins
+        PROJECT_KEY    = 'alpinehelloworld'         // projectKey SonarQube
+        SONARQUBE_URL  = 'http://sonarqube:9000'    // URL du service SonarQube
+    }
+
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                echo '🔄 Récupération du code source...'
+                checkout scm
+            }
+        }
+
+        stage('Install Python Dependencies') {
+            steps {
+                echo '📦 Installation des dépendances Python...'
+                sh '''
+                    if [ -f requirements.txt ]; then
+                        python3 -m venv venv
+                        bash -c "source venv/bin/activate && pip install -r requirements.txt"
+                    else
+                        echo "⚠️ Aucun fichier requirements.txt trouvé, étape ignorée."
+                    fi
+                '''
+            }
+        }
+
+        stage('Analyse SonarQube') {
+            steps {
+                echo '🔍 Lancement de l’analyse SonarQube...'
+                script {
+                    def scannerHome = tool "${SCANNER_NAME}"
+
+                    withSonarQubeEnv("${SONARQUBE_ENV}") {
+
+                        withCredentials([string(credentialsId: 'alpinehelloworld', variable: 'SONAR_TOKEN')]) {
+
+                            sh """
+${scannerHome}/bin/sonar-scanner \
+  -Dsonar.projectKey=${PROJECT_KEY} \
+  -Dsonar.sources=. \
+  -Dsonar.inclusions=Scan_docker.py \
+  -Dsonar.exclusions=venv/**,**/__pycache__/**,**/*.pyc \
+  -Dsonar.login=${SONAR_TOKEN} \
+  -Dsonar.host.url=${SONARQUBE_URL}
+"""
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Build Python Project') {
+            steps {
+                echo '🔧 Compilation éventuelle (setup.py)...'
+                sh '''
+                    if [ -f setup.py ]; then
+                        python setup.py install
+                    else
+                        echo "Pas de setup.py, étape ignorée."
+                    fi
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ Pipeline terminée avec succès.'
+        }
+        failure {
+            echo '❌ Échec de la pipeline.'
+        }
+    }
+}
